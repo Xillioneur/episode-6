@@ -1,23 +1,29 @@
-# Makefile for Divine Ascent (Episode 6)
-# Standardized for macOS with MacPorts SDL2
-
 CXX = g++
-CXXFLAGS = -std=c++20 -Wall -Wextra -Og -I/opt/local/include
-LDFLAGS = -L/opt/local/lib -lSDL2 -lSDL2_ttf -lSDL2_image -lSDL2_mixer
+CXXFLAGS = -std=c++17 -Wall -Wextra -Og -I. -I/opt/local/include
+LDFLAGS = -L/opt/local/lib -lSDL2 -lSDL2_ttf
 
-SRC = main.cpp
+SRC = main.cpp \
+      src/engine/Entity.cpp \
+      src/gameplay/Actor.cpp \
+      src/gameplay/Slug.cpp \
+      src/ui/HUD.cpp \
+      src/Game.cpp
+
 OBJ = $(SRC:.cpp=.o)
-EXE = shadowrecon
+TARGET = shadowrecon
 
-all: $(EXE)
+all: $(TARGET)
 
-$(EXE): $(SRC)
-	$(CXX) $(CXXFLAGS) $(SRC) -o $(EXE) $(LDFLAGS)
+$(TARGET): $(OBJ)
+	$(CXX) $(OBJ) -o $(TARGET) $(LDFLAGS)
 
-run: all
-	./$(EXE)
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(EXE) $(OBJ)
+	rm -f $(OBJ) $(TARGET)
 
-.PHONY: all run clean
+run: all
+	./$(TARGET)
+
+.PHONY: all clean run
