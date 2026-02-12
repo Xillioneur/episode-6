@@ -19,6 +19,7 @@ public:
     int maxSlugs = 12;
     int reserveSlugs = 60;
     float dashTimer = 0.0f;
+    float stepTimer = 0.0f;
     bool reflexActive = false;
     float shootCooldown = 0.0f;
 

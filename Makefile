@@ -4,6 +4,7 @@ LDFLAGS = -L/opt/local/lib -lSDL2 -lSDL2_ttf
 
 SRC = main.cpp \
       src/engine/Entity.cpp \
+      src/engine/AudioManager.cpp \
       src/gameplay/Actor.cpp \
       src/gameplay/Slug.cpp \
       src/ui/HUD.cpp \

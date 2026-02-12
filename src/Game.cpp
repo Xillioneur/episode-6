@@ -20,7 +20,7 @@ std::string ObjectiveSystem::getDesc() const {
 }
 
 Game::Game() {
-    SDL_Init(SDL_INIT_VIDEO); TTF_Init();
+    TTF_Init();
     win = SDL_CreateWindow("Recoil Protocol", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
     ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 #ifdef __APPLE__
@@ -38,7 +38,6 @@ Game::~Game() {
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
     TTF_Quit();
-    SDL_Quit();
 }
 
 void Game::init() {
@@ -59,6 +58,7 @@ void Game::init() {
     exit->active = false;
     state = GameState::PLAYING;
     hud.addLog("SYSTEM ONLINE. SECTOR " + std::to_string(sector));
+    audio.play(SoundType::POWERUP, 0.4f, 200.0f);
 }
 
 void Game::cleanup() {
@@ -143,16 +143,19 @@ void Game::handleInput() {
         int n = p->maxSlugs - p->slugs;
         if (n > 0 && p->reserveSlugs > 0) {
             int a = std::min(n, p->reserveSlugs); p->slugs += a; p->reserveSlugs -= a; shake = 5.0f; hud.addLog("WEAPON: Slugs reloaded.");
+            audio.play(SoundType::RELOAD, 0.3f, 800.0f);
         }
     }
     if (input.isPressed(SDL_SCANCODE_F) && p->energy > 50.0f) {
         p->energy -= 50.0f; vfx.triggerFlash(0.5f);
+        audio.play(SoundType::POWERUP, 0.4f, 600.0f);
         for (auto s : slugs) if (!s->isPlayer && s->pos.distance(p->pos) < 250.0f) s->active = false;
         for (auto c : cores) if (c->pos.distance(p->pos) < 200.0f) { c->stability -= 150.0f; Vec2 d = (c->pos - p->pos).normalized(); if (d.length() < 0.1f) d = {0, -1}; c->vel = d * 1200.0f; c->stunTimer = 0.8f; }
     }
     if (input.isPressed(SDL_SCANCODE_LSHIFT) && p->energy > 30.0f) {
         Vec2 d = p->vel.normalized(); if (d.length() < 0.1f) d = {0, -1};
         p->vel = d * DASH_SPEED; p->dashTimer = 0.15f; p->energy -= 30.0f;
+        audio.play(SoundType::DASH, 0.3f, 200.0f);
     }
     if (input.isPressed(SDL_SCANCODE_RETURN) && state != GameState::PLAYING) init();
 }
@@ -168,9 +171,17 @@ void Game::update() {
         if (input.isPressed(SDL_SCANCODE_A)) mv.x = -1;
         if (input.isPressed(SDL_SCANCODE_D)) mv.x = 1;
         p->vel = mv.normalized() * PLAYER_SPEED;
+        if (mv.length() > 0.1f) {
+            p->stepTimer -= dt;
+            if (p->stepTimer <= 0) { audio.play(SoundType::STEP, 0.15f, 100.0f); p->stepTimer = 0.35f; }
+        } else { p->stepTimer = 0; }
     }
     Vec2 pCtr = p->bounds.center(); Vec2 mWorld = input.mPos + cam; p->lookAngle = std::atan2(mWorld.y - pCtr.y, mWorld.x - pCtr.x);
     p->update(dt, map); objective.update(*this); hud.update(dt);
+    if (p->suitIntegrity < 30.0f) {
+        alertTimer -= dt;
+        if (alertTimer <= 0) { audio.play(SoundType::ALERT, 0.2f, 1000.0f); alertTimer = 0.6f; }
+    }
     if (debugMode) { p->suitIntegrity = 100.0f; p->energy = 100.0f; p->slugs = p->maxSlugs; }
     updatePickups(); updateWeapons(wdt); updateAI(wdt); updateSlugs(wdt); updateEchoes(wdt);
     for (auto& ft : fTexts) { ft.pos.y -= 40.0f * dt; ft.life -= dt; }
@@ -190,13 +201,24 @@ void Game::updateWeapons(float dt) {
         Vec2 d = (input.mPos + cam - p->bounds.center()).normalized();
         slugs.push_back(new KineticSlug(p->bounds.center(), d * 800.0f, true, currentAmmo));
         p->shootCooldown = 0.25f; p->slugs--; shake = 3.0f;
+        audio.play(SoundType::SHOOT, 0.35f, 1200.0f + (rand() % 200), 0.0f);
     }
+}
+
+void Game::playSpatial(SoundType type, Vec2 pos, float vol, float freq) {
+    Vec2 d = pos - p->bounds.center();
+    float dist = d.length();
+    if (dist > 800.0f) return;
+    float pan = std::clamp(d.x / 400.0f, -1.0f, 1.0f);
+    float falloff = std::max(0.0f, 1.0f - (dist / 800.0f));
+    audio.play(type, vol * falloff, freq, pan);
 }
 
 void Game::updatePickups() {
     for (auto i : items) {
         if (i->active && p->bounds.intersects(i->bounds)) {
             i->active = false;
+            playSpatial(SoundType::PICKUP, i->pos, 0.4f, 600.0f);
             if (i->it == ItemType::REPAIR_KIT) { p->suitIntegrity = std::min(100.0f, p->suitIntegrity + 30.0f); spawnFText(i->pos, "REPAIRED", {50, 255, 50, 255}); }
             else if (i->it == ItemType::BATTERY_PACK) { p->reserveSlugs += 24; spawnFText(i->pos, "+24 SLUGS", COL_GOLD); }
             vfx.spawnBurst(i->pos, 10, COL_GOLD);
@@ -236,12 +258,18 @@ void Game::updateAI(float dt) {
             c->stateTimer -= dt; if (c->stateTimer <= 0) { c->calculatePath(p->bounds.center(), map); c->stateTimer = 0.5f; }
             if (!c->path.empty() && c->pathIndex < c->path.size()) { Vec2 dir = (c->path[c->pathIndex] - c->bounds.center()); if (dir.length() < 10.0f) c->pathIndex++; else c->vel = dir.normalized() * AI_SPEED; }
         }
-        if (d < 250 && rand() % 100 < 2) slugs.push_back(new KineticSlug(c->bounds.center(), (p->bounds.center() - c->bounds.center()).normalized() * 450.0f, false));
+        if (d < 250 && rand() % 100 < 2) {
+            slugs.push_back(new KineticSlug(c->bounds.center(), (p->bounds.center() - c->bounds.center()).normalized() * 450.0f, false));
+            playSpatial(SoundType::SHOOT, c->pos, 0.2f, 600.0f + (rand() % 100));
+        }
         c->update(dt, map);
     }
     for (auto n : newSpawns) cores.push_back(n);
     cores.erase(std::remove_if(cores.begin(), cores.end(), [](RogueCore* c) { if (!c->active) { delete c; return true; } return false; }), cores.end());
-    for (auto c : cores) if (c->contained && !c->sanitized && p->bounds.intersects(c->bounds)) { c->sanitized = true; score += 150; spawnFText(c->pos, "SANITIZED", COL_PLAYER); vfx.spawnBurst(c->pos, 25, COL_PLAYER); }
+    for (auto c : cores) if (c->contained && !c->sanitized && p->bounds.intersects(c->bounds)) { 
+        c->sanitized = true; score += 150; spawnFText(c->pos, "SANITIZED", COL_PLAYER); vfx.spawnBurst(c->pos, 25, COL_PLAYER); 
+        playSpatial(SoundType::SANITIZE, c->pos, 0.5f, 400.0f);
+    }
 }
 
 void Game::updateSlugs(float dt) {
@@ -253,17 +281,30 @@ void Game::updateSlugs(float dt) {
                 if (s->ammoType == AmmoType::EMP) { c->stunTimer = 1.2f; dmg *= 0.5f; }
                 if (s->ammoType == AmmoType::PIERCING) dmg *= 1.5f;
                 GuardianCore* g = dynamic_cast<GuardianCore*>(c);
-                if (g && g->shield > 0) { g->shield -= dmg; if (s->ammoType != AmmoType::PIERCING) s->active = false; vfx.spawnBurst(s->pos, 5, {100, 200, 255, 255}); }
-                else { c->stability -= dmg; s->active = false; vfx.spawnBurst(s->pos, 8, COL_SLUG); if (c->stability <= 0) { c->contained = true; c->vel = {0, 0}; score += 50; } }
+                if (g && g->shield > 0) { g->shield -= dmg; if (s->ammoType != AmmoType::PIERCING) s->active = false; vfx.spawnBurst(s->pos, 5, {100, 200, 255, 255}); playSpatial(SoundType::HIT, s->pos, 0.25f, 800.0f); }
+                else { 
+                    c->stability -= dmg; s->active = false; vfx.spawnBurst(s->pos, 8, COL_SLUG); 
+                    playSpatial(SoundType::HIT, s->pos, 0.3f, 400.0f);
+                    if (c->stability <= 0) { c->contained = true; c->vel = {0, 0}; score += 50; } 
+                }
             }
-        } else if (s->bounds.intersects(p->bounds)) { p->suitIntegrity -= 10.0f; s->active = false; vfx.spawnBurst(s->pos, 5, COL_PLAYER); shake = 8.0f; }
+        } else if (s->bounds.intersects(p->bounds)) { 
+            p->suitIntegrity -= 10.0f; s->active = false; vfx.spawnBurst(s->pos, 5, COL_PLAYER); shake = 8.0f; 
+            audio.play(SoundType::HIT, 0.5f, 200.0f);
+        }
     }
     slugs.erase(std::remove_if(slugs.begin(), slugs.end(), [](KineticSlug* s) { if (!s->active) { delete s; return true; } return false; }), slugs.end());
 }
 
 void Game::updateEchoes(float dt) {
     if (state == GameState::PLAYING && rand() % 1000 < 1 + sector) echoes.push_back(new NeuralEcho(p->pos + Vec2((float)(rand() % 400 - 200), (float)(rand() % 400 - 200))));
-    for (auto e : echoes) { e->vel = (p->pos - e->pos).normalized() * 100.0f; e->update(dt, map); if (e->active && e->bounds.intersects(p->bounds)) { p->suitIntegrity -= 15.0f; e->active = false; vfx.triggerFlash(0.3f); } }
+    for (auto e : echoes) { 
+        e->vel = (p->pos - e->pos).normalized() * 100.0f; e->update(dt, map); 
+        if (e->active && e->bounds.intersects(p->bounds)) { 
+            p->suitIntegrity -= 15.0f; e->active = false; vfx.triggerFlash(0.3f); 
+            audio.play(SoundType::HIT, 0.6f, 150.0f);
+        } 
+    }
     echoes.erase(std::remove_if(echoes.begin(), echoes.end(), [](NeuralEcho* e) { if (!e->active) { delete e; return true; } return false; }), echoes.end());
 }
 

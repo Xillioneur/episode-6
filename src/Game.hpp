@@ -11,6 +11,7 @@
 #include "engine/InputHandler.hpp"
 #include "engine/LightingManager.hpp"
 #include "engine/VFXManager.hpp"
+#include "engine/AudioManager.hpp"
 #include "ui/HUD.hpp"
 #include "gameplay/Actor.hpp"
 #include "gameplay/Slug.hpp"
@@ -36,6 +37,7 @@ public:
     InputHandler input;
     LightingManager lighting;
     VFXManager vfx;
+    AudioManager audio;
     ObjectiveSystem objective;
     HUD hud;
 
@@ -51,6 +53,7 @@ public:
     float shake = 0.0f;
     int score = 0;
     int sector = 1;
+    float alertTimer = 0.0f;
     bool debugMode = false;
     AmmoType currentAmmo = AmmoType::STANDARD;
 
@@ -71,6 +74,7 @@ public:
     void updatePickups();
     void updateWeapons(float dt);
     void spawnFText(Vec2 pos, std::string t, SDL_Color c);
+    void playSpatial(SoundType type, Vec2 pos, float vol = 0.2f, float freq = 440.0f);
     void loop();
 };
 
