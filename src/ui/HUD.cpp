@@ -14,6 +14,18 @@ void HUD::update(float dt) {
 
 void HUD::renderText(SDL_Renderer* ren, const std::string& t, int x, int y, TTF_Font* f, SDL_Color c) {
     if (!f || t.empty()) return;
+    
+    // Bloom shadow
+    SDL_Color bloom = c; bloom.a = 60;
+    SDL_Surface* bs = TTF_RenderText_Blended(f, t.c_str(), bloom);
+    if (bs) {
+        SDL_Texture* bt = SDL_CreateTextureFromSurface(ren, bs);
+        SDL_Rect bd = {x - 1, y - 1, bs->w + 2, bs->h + 2};
+        SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+        SDL_RenderCopy(ren, bt, NULL, &bd);
+        SDL_DestroyTexture(bt); SDL_FreeSurface(bs);
+    }
+
     SDL_Surface* s = TTF_RenderText_Blended(f, t.c_str(), c);
     if (s) {
         SDL_Texture* tx = SDL_CreateTextureFromSurface(ren, s);
@@ -24,15 +36,40 @@ void HUD::renderText(SDL_Renderer* ren, const std::string& t, int x, int y, TTF_
     }
 }
 
+void HUD::renderMenu(SDL_Renderer* ren, TTF_Font* font, TTF_Font* fontL) {
+    renderText(ren, "RECOIL PROTOCOL", SCREEN_WIDTH / 2 - 180, 150, fontL, {100, 200, 255, 255});
+    renderText(ren, "NEURAL INTERFACE INITIALIZED", SCREEN_WIDTH / 2 - 120, 220, font, {200, 200, 255, 255});
+    
+    int ty = 280;
+    renderText(ren, "OPERATIONAL MANUAL:", SCREEN_WIDTH / 2 - 80, ty, font, {150, 150, 150, 255});
+    renderText(ren, "[WASD] - MOBILE LINK", SCREEN_WIDTH / 2 - 100, ty + 25, font, {200, 200, 200, 255});
+    renderText(ren, "[MOUSE1] - KINETIC DISCHARGE", SCREEN_WIDTH / 2 - 100, ty + 45, font, {200, 200, 200, 255});
+    renderText(ren, "[SHIFT] - TACHYON DASH", SCREEN_WIDTH / 2 - 100, ty + 65, font, {200, 200, 200, 255});
+    renderText(ren, "[SPACE] - REFLEX OVERRIDE", SCREEN_WIDTH / 2 - 100, ty + 85, font, {200, 200, 200, 255});
+    renderText(ren, "[1-3] - AMMO SELECTION", SCREEN_WIDTH / 2 - 100, ty + 105, font, {200, 200, 200, 255});
+    
+    renderText(ren, "PRESS ENTER TO COMMENCE MISSION", SCREEN_WIDTH / 2 - 160, 480, font, {100, 255, 100, 255});
+    renderText(ren, "CREATED BY GEMINI-CLI // SYSTEM VERSION 1.0.3", SCREEN_WIDTH / 2 - 180, SCREEN_HEIGHT - 30, font, {80, 80, 100, 255});
+}
+
 void HUD::drawBar(SDL_Renderer* ren, int x, int y, int w, int h, float pct, SDL_Color col) {
     SDL_Rect bg = {x, y, w, h};
-    SDL_SetRenderDrawColor(ren, 40, 40, 40, 255);
+    SDL_SetRenderDrawColor(ren, 20, 20, 25, 255);
     SDL_RenderFillRect(ren, &bg);
+    
     SDL_Rect fg = {x, y, (int)(w * std::clamp(pct, 0.0f, 1.0f)), h};
-    SDL_SetRenderDrawColor(ren, col.r, col.g, col.b, col.a);
+    SDL_SetRenderDrawColor(ren, col.r, col.g, col.b, 255);
     SDL_RenderFillRect(ren, &fg);
-    SDL_SetRenderDrawColor(ren, 80, 80, 80, 255);
+    
+    // Glass highlight
+    SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(ren, 255, 255, 255, 40);
+    SDL_Rect hi = { x, y, w, h / 2 };
+    SDL_RenderFillRect(ren, &hi);
+    
+    SDL_SetRenderDrawColor(ren, 60, 60, 70, 255);
     SDL_RenderDrawRect(ren, &bg);
+    SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
 }
 
 void HUD::renderSummary(SDL_Renderer* ren, int score, int sector, TTF_Font* font, TTF_Font* fontL) {
@@ -65,19 +102,34 @@ void HUD::render(SDL_Renderer* ren, Player* p, int score, int sector, Game& game
     (void)fontL;
     drawBar(ren, 20, 20, 200, 18, p->suitIntegrity/100.0f, {50, 255, 100, 255});
     renderText(ren, "INTEGRITY", 25, 21, font, {255, 255, 255, 255});
-    drawBar(ren, 20, 45, 150, 10, p->energy/100.0f, {50, 150, 255, 255});
-    renderText(ren, "ENERGY", 25, 45, font, {200, 200, 255, 255});
-    drawBar(ren, 20, 60, 150, 10, p->reflexMeter / 100.0f, {255, 200, 50, 255});
-    renderText(ren, "REFLEX", 25, 60, font, {255, 255, 200, 255});
+    drawBar(ren, 20, 40, 200, 6, p->shield / p->maxShield, {100, 200, 255, 255});
+    drawBar(ren, 20, 50, 150, 10, p->energy/100.0f, {50, 150, 255, 255});
+    renderText(ren, "ENERGY", 25, 50, font, {200, 200, 255, 255});
+    drawBar(ren, 20, 65, 150, 10, p->reflexMeter / 100.0f, {255, 200, 50, 255});
+    renderText(ren, "REFLEX", 25, 65, font, {255, 255, 200, 255});
     
     renderText(ren, "SLUGS: " + std::to_string(p->slugs) + " / " + std::to_string(p->reserveSlugs), 20, 85, font, {220, 220, 220, 255});
     std::string ammoStr = (game.currentAmmo == AmmoType::STANDARD) ? "STANDARD" : (game.currentAmmo == AmmoType::EMP) ? "EMP" : "PIERCING";
     renderText(ren, "AMMO: " + ammoStr, 20, 100, font, {150, 255, 255, 255});
     
-    if(game.debugMode) renderText(ren, "DEBUG ACTIVE", SCREEN_WIDTH-150, 20, font, {255, 255, 0, 255});
     renderText(ren, "SECTOR: " + std::to_string(sector), SCREEN_WIDTH-120, 40, font, {150, 150, 255, 255});
     renderText(ren, "SCORE: " + std::to_string(score), SCREEN_WIDTH-120, 60, font, {255, 255, 255, 255});
+    
+    if (game.multiplier > 1.0f) {
+        std::string mStr = "MULT: x" + std::to_string(game.multiplier).substr(0, 3);
+        renderText(ren, mStr, SCREEN_WIDTH - 120, 80, font, {255, 200, 50, (Uint8)(150 + 105 * (game.multiplierTimer / 3.0f))});
+    }
+
     renderText(ren, game.objective.getDesc(), SCREEN_WIDTH/2-150, 20, font, {255, 255, 100, 255});
+
+    for (auto c : game.cores) {
+        if (dynamic_cast<FinalBossCore*>(c) && !c->sanitized) {
+            FinalBossCore* bc = dynamic_cast<FinalBossCore*>(c);
+            drawBar(ren, SCREEN_WIDTH / 2 - 200, SCREEN_HEIGHT - 40, 400, 12, bc->stability / 2500.0f, {255, 50, 50, 255});
+            renderText(ren, "BOSS ANOMALY STABILITY", SCREEN_WIDTH / 2 - 80, SCREEN_HEIGHT - 38, font, {255, 255, 255, 200});
+            break;
+        }
+    }
     
     // Minimap
     SDL_Rect mmRect = {SCREEN_WIDTH - 110, 100, 100, 100}; SDL_SetRenderDrawColor(ren, 0, 0, 0, 180); SDL_RenderFillRect(ren, &mmRect);

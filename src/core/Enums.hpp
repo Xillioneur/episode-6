@@ -10,7 +10,7 @@ enum class GameState { MENU, PLAYING, GAME_OVER, VICTORY, SUMMARY };
 enum class EntityType { PLAYER, ROGUE_CORE, NEURAL_ECHO, KINETIC_SLUG, ITEM, EXIT, HAZARD, DECORATION, GADGET };
 enum class AmmoType { STANDARD, EMP, PIERCING };
 enum class ItemType { REPAIR_KIT, BATTERY_PACK, COOLANT, OVERCLOCK };
-enum TileType { WALL, FLOOR };
+enum TileType { WALL, FLOOR, HAZARD_TILE };
 
 struct Tile {
     TileType type;

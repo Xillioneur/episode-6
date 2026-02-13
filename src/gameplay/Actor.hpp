@@ -13,6 +13,9 @@ namespace Graphics {
 class Player : public Entity {
 public:
     float suitIntegrity = 100.0f;
+    float shield = 50.0f;
+    float maxShield = 50.0f;
+    float prevShield = 50.0f;
     float energy = 100.0f;
     float reflexMeter = 100.0f;
     int slugs = 12;

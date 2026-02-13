@@ -27,18 +27,24 @@ public:
         }
     }
     void render(SDL_Renderer* ren, const Vec2& cam) {
+        SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
         for (const auto& p : particles) {
-            SDL_SetRenderDrawColor(ren, p.color.r, p.color.g, p.color.b, (Uint8)(255 * (p.life / p.maxLife)));
+            float alpha = (p.life / p.maxLife);
+            SDL_SetRenderDrawColor(ren, p.color.r, p.color.g, p.color.b, (Uint8)(255 * alpha));
             SDL_Rect r = {(int)(p.pos.x - cam.x), (int)(p.pos.y - cam.y), (int)p.size, (int)p.size};
             SDL_RenderFillRect(ren, &r);
+            if (p.size > 2.5f) { // Glow for large particles
+                SDL_SetRenderDrawColor(ren, p.color.r, p.color.g, p.color.b, (Uint8)(100 * alpha));
+                SDL_Rect gr = {r.x - 2, r.y - 2, r.w + 4, r.h + 4};
+                SDL_RenderDrawRect(ren, &gr);
+            }
         }
         if (flashAlpha > 0) {
-            SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(ren, 255, 255, 255, (Uint8)(flashAlpha * 255));
             SDL_Rect r = {0, 0, SCREEN_WIDTH, SCREEN_HEIGHT};
             SDL_RenderFillRect(ren, &r);
-            SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
         }
+        SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
     }
 };
 

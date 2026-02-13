@@ -46,6 +46,7 @@ public:
     std::vector<KineticSlug*> slugs;
     std::vector<NeuralEcho*> echoes;
     std::vector<Item*> items;
+    std::vector<Entity*> decorations;
     std::vector<FloatingText> fTexts;
     Entity* exit = nullptr;
 
@@ -78,6 +79,7 @@ public:
     void updateEchoes(float dt);
     void updatePickups();
     void updateWeapons(float dt);
+    void damagePlayer(float amount);
     void spawnFText(Vec2 pos, std::string t, SDL_Color c);
     void playSpatial(SoundType type, Vec2 pos, float vol = 0.2f, float freq = 440.0f);
     void loop();

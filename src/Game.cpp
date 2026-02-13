@@ -1,6 +1,7 @@
 #include "Game.hpp"
 #include <iostream>
 #include <queue>
+#include "gameplay/Environmental.hpp"
 
 void ObjectiveSystem::update(Game& game) {
     bool all = true;
@@ -23,6 +24,7 @@ Game::Game() {
     TTF_Init();
     win = SDL_CreateWindow("Recoil Protocol", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
     ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    lighting.init(ren);
 #ifdef __APPLE__
     font = TTF_OpenFont("/System/Library/Fonts/Helvetica.ttc", 18); fontL = TTF_OpenFont("/System/Library/Fonts/Helvetica.ttc", 52);
 #else
@@ -54,6 +56,11 @@ void Game::init() {
         hud.addLog("CRITICAL: BOSS ANOMALY DETECTED!", {255, 50, 50, 255});
     }
     for (int i = 0; i < 8; ++i) items.push_back(new Item(findSpace(20, 20), (rand() % 100 < 40) ? ItemType::BATTERY_PACK : ItemType::REPAIR_KIT));
+    for (int i = 0; i < 6 + sector; ++i) {
+        SoundType st = (rand() % 3 == 0) ? SoundType::MACHINERY : (rand() % 2 == 0 ? SoundType::STEAM : SoundType::DRIP);
+        SDL_Color c = (st == SoundType::MACHINERY) ? SDL_Color{100, 100, 255, 255} : (st == SoundType::STEAM ? SDL_Color{255, 100, 100, 255} : SDL_Color{100, 255, 255, 255});
+        decorations.push_back(new DecorativeMachine(findSpace(32, 32), st, c));
+    }
     exit = new Entity(findSpace(40, 40), 40, 40, EntityType::EXIT);
     exit->active = false;
     state = GameState::PLAYING;
@@ -68,8 +75,9 @@ void Game::cleanup() {
     for(auto s:slugs) delete s;
     for(auto e:echoes) delete e;
     for(auto i:items) delete i;
+    for(auto d:decorations) delete d;
     if(exit) delete exit;
-    cores.clear(); slugs.clear(); echoes.clear(); items.clear(); fTexts.clear();
+    cores.clear(); slugs.clear(); echoes.clear(); items.clear(); decorations.clear(); fTexts.clear();
 }
 
 Vec2 Game::findSpace(float w, float h) {
@@ -129,6 +137,14 @@ void Game::generateLevel() {
         }
         connected = true;
         for (int y = 0; y < MAP_HEIGHT; ++y) for (int x = 0; x < MAP_WIDTH; ++x) if (map[y][x].type == FLOOR && !reachable[y][x]) connected = false;
+        
+        if (connected) {
+            for (int y = 0; y < MAP_HEIGHT; ++y) {
+                for (int x = 0; x < MAP_WIDTH; ++x) {
+                    if (map[y][x].type == FLOOR && rand() % 100 < 2) map[y][x].type = HAZARD_TILE;
+                }
+            }
+        }
     }
 }
 
@@ -197,7 +213,19 @@ void Game::update() {
     }
     Vec2 pCtr = p->bounds.center(); Vec2 mWorld = input.mPos + cam; p->lookAngle = std::atan2(mWorld.y - pCtr.y, mWorld.x - pCtr.x);
     p->update(dt, map); objective.update(*this); hud.update(dt);
+    if (p->shield >= p->maxShield && p->prevShield < p->maxShield) {
+        audio.play(SoundType::READY, 0.3f, 800.0f);
+    }
     
+    int px = (int)(p->bounds.center().x / TILE_SIZE), py = (int)(p->bounds.center().y / TILE_SIZE);
+    if (px >= 0 && px < MAP_WIDTH && py >= 0 && py < MAP_HEIGHT && map[py][px].type == HAZARD_TILE) {
+        damagePlayer(15.0f * dt);
+        if (rand() % 20 == 0) {
+            audio.play(SoundType::ZAP, 0.2f, 800.0f + (rand() % 400));
+            vfx.spawnBurst(p->bounds.center(), 3, {255, 255, 0, 255});
+        }
+    }
+
     bool bossActive = false;
     bool enemiesClose = false;
     for (auto c : cores) {
@@ -229,6 +257,16 @@ void Game::update() {
     }
     if (debugMode) { p->suitIntegrity = 100.0f; p->energy = 100.0f; p->slugs = p->maxSlugs; }
     updatePickups(); updateWeapons(wdt); updateAI(wdt); updateSlugs(wdt); updateEchoes(wdt);
+    for (auto d : decorations) {
+        float oldTimer = dynamic_cast<DecorativeMachine*>(d)->timer;
+        d->update(dt, map);
+        if (oldTimer > 0 && dynamic_cast<DecorativeMachine*>(d)->timer > oldTimer) {
+            SoundType st = dynamic_cast<DecorativeMachine*>(d)->sound;
+            float f = (st == SoundType::DRIP) ? 1200.0f : (st == SoundType::STEAM ? 400.0f : 60.0f);
+            playSpatial(st, d->pos, 0.25f, f);
+            if (st == SoundType::STEAM) vfx.spawnBurst(d->pos, 10, {200, 200, 255, 150});
+        }
+    }
     for (auto& ft : fTexts) { ft.pos.y -= 40.0f * dt; ft.life -= dt; }
     fTexts.erase(std::remove_if(fTexts.begin(), fTexts.end(), [](const FloatingText& t) { return t.life <= 0; }), fTexts.end());
     if (exit && exit->active && p->bounds.intersects(exit->bounds)) {
@@ -270,6 +308,22 @@ void Game::playSpatial(SoundType type, Vec2 pos, float vol, float freq) {
     float pan = std::clamp(d.x / 400.0f, -1.0f, 1.0f);
     float falloff = std::max(0.0f, 1.0f - (dist / 800.0f));
     audio.play(type, vol * falloff, freq, pan);
+}
+
+void Game::damagePlayer(float amount) {
+    if (p->shield > 0) {
+        p->shield -= amount;
+        if (p->shield <= 0) {
+            audio.play(SoundType::SHIELD_DOWN, 0.5f, 400.0f);
+            spawnFText(p->pos, "SHIELD COLLAPSED", {100, 200, 255, 255});
+        } else {
+            audio.play(SoundType::HIT, 0.2f, 800.0f);
+        }
+    } else {
+        p->suitIntegrity -= amount;
+        audio.play(SoundType::HIT, 0.4f, 200.0f);
+        shake = 8.0f;
+    }
 }
 
 void Game::updatePickups() {
@@ -369,19 +423,32 @@ void Game::updateSlugs(float dt) {
                 if (s->ammoType == AmmoType::PIERCING) dmg *= 1.5f;
                 GuardianCore* g = dynamic_cast<GuardianCore*>(c);
                 if (g && g->shield > 0) { 
-                    float os = g->shield; g->shield -= dmg; 
+                    g->shield -= dmg; 
                     if (g->shield <= 0) playSpatial(SoundType::SHIELD_DOWN, s->pos, 0.45f, 600.0f);
-                    if (s->ammoType != AmmoType::PIERCING) s->active = false; vfx.spawnBurst(s->pos, 5, {100, 200, 255, 255}); playSpatial(SoundType::HIT, s->pos, 0.25f, 800.0f); 
+                    if (s->ammoType != AmmoType::PIERCING) { s->active = false; }
+                    vfx.spawnBurst(s->pos, 5, {100, 200, 255, 255}); 
+                    playSpatial(SoundType::HIT, s->pos, 0.25f, 800.0f); 
                 }
                 else { 
-                    c->stability -= dmg; s->active = false; vfx.spawnBurst(s->pos, 8, COL_SLUG); 
+                    c->stability -= dmg; s->active = false; 
+                    vfx.spawnBurst(s->pos, 8, COL_SLUG); 
                     playSpatial(SoundType::HIT, s->pos, 0.3f, 400.0f);
-                    if (c->stability <= 0) { c->contained = true; c->vel = {0, 0}; score += (int)(50 * multiplier); multiplier += 0.1f; multiplierTimer = 3.0f; } 
+                    if (c->stability <= 0) { 
+                        c->contained = true; c->vel = {0, 0}; 
+                        score += (int)(50 * multiplier); multiplier += 0.1f; multiplierTimer = 3.0f; 
+                        if (dynamic_cast<FinalBossCore*>(c)) {
+                            audio.play(SoundType::BOSS_DIE, 1.0f, 60.0f);
+                            vfx.spawnBurst(c->pos, 100, COL_GOLD);
+                            vfx.triggerFlash(0.8f);
+                            shake = 20.0f;
+                            hud.addLog("CRITICAL: BOSS ANOMALY NEUTRALIZED", COL_GOLD);
+                        }
+                    } 
                 }
             }
         } else if (s->bounds.intersects(p->bounds)) { 
-            p->suitIntegrity -= 10.0f; s->active = false; vfx.spawnBurst(s->pos, 5, COL_PLAYER); shake = 8.0f; 
-            audio.play(SoundType::HIT, 0.5f, 200.0f);
+            damagePlayer(10.0f);
+            s->active = false; vfx.spawnBurst(s->pos, 5, COL_PLAYER); 
             multiplier = 1.0f; multiplierTimer = 0;
         }
     }
@@ -393,9 +460,12 @@ void Game::updateEchoes(float dt) {
     for (auto e : echoes) { 
         e->vel = (p->pos - e->pos).normalized() * 100.0f; e->update(dt, map); 
         if (e->active && e->bounds.intersects(p->bounds)) { 
-            p->suitIntegrity -= 15.0f; e->active = false; vfx.triggerFlash(0.3f); 
-            audio.play(SoundType::HIT, 0.6f, 150.0f);
-        } 
+            damagePlayer(15.0f);
+            e->active = false; vfx.triggerFlash(0.3f); 
+        }
+        if (e->active && e->pos.distance(p->pos) < 200.0f && rand() % 100 == 0) {
+            playSpatial(SoundType::ECHO_VOICE, e->pos, 0.2f, 200.0f + (rand() % 400));
+        }
     }
     echoes.erase(std::remove_if(echoes.begin(), echoes.end(), [](NeuralEcho* e) { if (!e->active) { delete e; return true; } return false; }), echoes.end());
 }
@@ -408,31 +478,79 @@ void Game::spawnFText(Vec2 pos, std::string t, SDL_Color c) {
 void Game::render() {
     SDL_SetRenderDrawColor(ren, COL_BG.r, COL_BG.g, COL_BG.b, 255); SDL_RenderClear(ren);
     if (state == GameState::MENU || state == GameState::SUMMARY || state == GameState::GAME_OVER) {
-        SDL_SetRenderDrawColor(ren, 20, 30, 40, 255);
+        SDL_SetRenderDrawColor(ren, 15, 20, 25, 255);
         for (int i = 0; i < SCREEN_WIDTH; i += 40) SDL_RenderDrawLine(ren, i, 0, i, SCREEN_HEIGHT);
         for (int i = 0; i < SCREEN_HEIGHT; i += 40) SDL_RenderDrawLine(ren, 0, i, SCREEN_WIDTH, i);
+        // Intersections
+        SDL_SetRenderDrawColor(ren, 30, 40, 50, 255);
+        for (int x = 0; x < SCREEN_WIDTH; x += 40) {
+            for (int y = 0; y < SCREEN_HEIGHT; y += 40) {
+                SDL_Rect dot = { x - 1, y - 1, 3, 3 };
+                SDL_RenderFillRect(ren, &dot);
+            }
+        }
     }
     if (state == GameState::MENU) { 
-    renderT("RECOIL PROTOCOL", SCREEN_WIDTH / 2 - 180, 180, fontL, COL_PLAYER); 
-    renderT("Press ENTER to Start", SCREEN_WIDTH / 2 - 100, 350, font, COL_TEXT); 
-    renderT("CREATED BY GEMINI-CLI AGENT", SCREEN_WIDTH / 2 - 120, SCREEN_HEIGHT - 40, font, {100, 100, 120, 255});
+        hud.renderMenu(ren, font, fontL);
     }
     else if (state == GameState::PLAYING) {
         int sx = std::max(0, (int)(cam.x / TILE_SIZE)), sy = std::max(0, (int)(cam.y / TILE_SIZE));
         int ex = std::min(MAP_WIDTH, (int)((cam.x + SCREEN_WIDTH) / TILE_SIZE) + 1), ey = std::min(MAP_HEIGHT, (int)((cam.y + SCREEN_HEIGHT) / TILE_SIZE) + 1);
         for (int y = sy; y < ey; ++y) for (int x = sx; x < ex; ++x) {
             SDL_Rect r = {(int)(x * TILE_SIZE - cam.x), (int)(y * TILE_SIZE - cam.y), TILE_SIZE, TILE_SIZE};
-            SDL_SetRenderDrawColor(ren, (map[y][x].type == WALL) ? COL_WALL.r : COL_FLOOR.r, (map[y][x].type == WALL) ? COL_WALL.g : COL_FLOOR.g, (map[y][x].type == WALL) ? COL_WALL.b : COL_FLOOR.b, 255); SDL_RenderFillRect(ren, &r);
+            if (map[y][x].type == WALL) SDL_SetRenderDrawColor(ren, COL_WALL.r, COL_WALL.g, COL_WALL.b, 255);
+            else if (map[y][x].type == FLOOR) SDL_SetRenderDrawColor(ren, COL_FLOOR.r, COL_FLOOR.g, COL_FLOOR.b, 255);
+            else { // HAZARD_TILE
+                Uint8 flicker = (Uint8)(100 + std::sin(SDL_GetTicks() * 0.02f) * 50);
+                SDL_SetRenderDrawColor(ren, flicker, flicker, 0, 255);
+            }
+            SDL_RenderFillRect(ren, &r);
             if (map[y][x].type == WALL) { SDL_SetRenderDrawColor(ren, 50, 50, 100, 255); SDL_RenderDrawRect(ren, &r); }
         }
+
+        // Layer 1: Floor Illumination
+        for (auto c : cores) if (!c->sanitized) lighting.drawPointLight(ren, c->bounds.center() - cam, 80, COL_CORE, 40);
+        lighting.drawPointLight(ren, p->bounds.center() - cam, 100, {100, 255, 200, 255}, 50);
+        for (auto s : slugs) {
+            SDL_Color sc = s->isPlayer ? (s->ammoType == AmmoType::EMP ? COL_EMP : (s->ammoType == AmmoType::PIERCING ? COL_GOLD : COL_PLAYER)) : COL_ROGUE_SLUG;
+            lighting.drawPointLight(ren, s->pos - cam + Vec2(3,3), 30, sc, 60);
+        }
+
+        // Layer 2: Smoothed Shadows
+        lighting.render(ren, cam);
+
         if (exit) {
             SDL_Rect er = {(int)(exit->pos.x - cam.x), (int)(exit->pos.y - cam.y), 40, 40};
-            if (exit->active) { SDL_SetRenderDrawColor(ren, 100, 255, 100, (Uint8)(150 + std::sin(SDL_GetTicks() * 0.01f) * 100)); SDL_RenderFillRect(ren, &er); SDL_SetRenderDrawColor(ren, 255, 255, 255, 255); SDL_RenderDrawRect(ren, &er); renderT("EXTRACTION POINT", er.x - 20, er.y - 25, font, {100, 255, 100, 255}); }
-            else { SDL_SetRenderDrawColor(ren, 40, 40, 80, 100); SDL_RenderFillRect(ren, &er); SDL_SetRenderDrawColor(ren, 150, 50, 50, 255); SDL_RenderDrawRect(ren, &er); renderT("EXIT LOCKED", er.x - 10, er.y - 25, font, {150, 50, 50, 255}); }
+            if (exit->active) { 
+                SDL_SetRenderDrawColor(ren, 100, 255, 100, (Uint8)(150 + std::sin(SDL_GetTicks() * 0.01f) * 100)); 
+                SDL_RenderFillRect(ren, &er); 
+                lighting.drawPointLight(ren, exit->bounds.center() - cam, 120, {100, 255, 100, 255}, 80);
+                renderT("EXTRACTION POINT", er.x - 20, er.y - 25, font, {100, 255, 100, 255}); 
+            } else { 
+                SDL_SetRenderDrawColor(ren, 40, 40, 80, 100); 
+                SDL_RenderFillRect(ren, &er); 
+                renderT("EXIT LOCKED", er.x - 10, er.y - 25, font, {150, 50, 50, 255}); 
+            }
         }
-        for (auto c : cores) c->render(ren, cam); p->render(ren, cam); for (auto s : slugs) s->render(ren, cam); for (auto i : items) i->render(ren, cam); for (auto e : echoes) e->render(ren, cam);
+
+        for (auto c : cores) { c->render(ren, cam); }
+        for (auto d : decorations) { d->render(ren, cam); }
+        p->render(ren, cam); 
+        for (auto s : slugs) { s->render(ren, cam); }
+        for (auto i : items) { i->render(ren, cam); }
+        for (auto e : echoes) { e->render(ren, cam); }
+
+        // Layer 3: Bloom Pass (Auras on top)
+        for (auto c : cores) if (!c->sanitized) lighting.drawPointLight(ren, c->bounds.center() - cam, 40, COL_CORE, 80);
+        lighting.drawPointLight(ren, p->bounds.center() - cam, 50, {150, 255, 255, 255}, 100);
+        for (auto s : slugs) {
+            SDL_Color sc = s->isPlayer ? (s->ammoType == AmmoType::EMP ? COL_EMP : (s->ammoType == AmmoType::PIERCING ? COL_GOLD : COL_PLAYER)) : COL_ROGUE_SLUG;
+            lighting.drawPointLight(ren, s->pos - cam + Vec2(3,3), 15, sc, 120);
+        }
+        for (auto i : items) lighting.drawPointLight(ren, i->pos - cam + Vec2(10,10), 30, COL_GOLD, 60);
+
         for (const auto& ft : fTexts) { renderT(ft.text, (int)(ft.pos.x - cam.x), (int)(ft.pos.y - cam.y), font, ft.color); }
-        vfx.render(ren, cam); lighting.render(ren, cam); hud.render(ren, p, score, sector, *this, font, fontL);
+        vfx.render(ren, cam); hud.render(ren, p, score, sector, *this, font, fontL);
         if (titleTimer > 0) {
             SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(ren, 0, 0, 0, (Uint8)(std::min(1.0f, titleTimer) * 200));
@@ -443,13 +561,37 @@ void Game::render() {
         }
     } else if (state == GameState::SUMMARY) {
         hud.renderSummary(ren, score, sector, font, fontL);
-    } else { renderT("PROTOCOL FAILURE", SCREEN_WIDTH / 2 - 180, 200, fontL, {255, 50, 50, 255}); renderT("Press ENTER to Reboot", SCREEN_WIDTH / 2 - 100, 400, font, COL_TEXT); }
+    } else { 
+        renderT("PROTOCOL FAILURE", SCREEN_WIDTH / 2 - 180, 200, fontL, {255, 50, 50, 255}); 
+        renderT("Press ENTER to Reboot", SCREEN_WIDTH / 2 - 100, 400, font, COL_TEXT); 
+        hud.addLog("CRITICAL: SUIT INTEGRITY TERMINATED", {255, 50, 50, 255});
+    }
+
+    // Modern Effects: Chromatic Aberration on Impact
+    if (shake > 5.0f) {
+        SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(ren, 255, 0, 0, 30);
+        SDL_Rect rL = { (int)(shake / 2), 0, SCREEN_WIDTH, SCREEN_HEIGHT };
+        SDL_RenderFillRect(ren, &rL);
+        SDL_SetRenderDrawColor(ren, 0, 255, 255, 30);
+        SDL_Rect rR = { -(int)(shake / 2), 0, SCREEN_WIDTH, SCREEN_HEIGHT };
+        SDL_RenderFillRect(ren, &rR);
+        SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
+    }
+
     SDL_RenderPresent(ren);
 }
 
 void Game::renderT(std::string t, int x, int y, TTF_Font* f, SDL_Color c) {
-    if (!f || t.empty()) return; SDL_Surface* s = TTF_RenderText_Blended(f, t.c_str(), c);
-    if (s) { SDL_Texture* tx = SDL_CreateTextureFromSurface(ren, s); SDL_Rect d = {x, y, s->w, s->h}; SDL_RenderCopy(ren, tx, NULL, &d); SDL_DestroyTexture(tx); SDL_FreeSurface(s); }
+    if (!f || t.empty()) return; 
+    SDL_Surface* s = TTF_RenderText_Blended(f, t.c_str(), c);
+    if (s) { 
+        SDL_Texture* tx = SDL_CreateTextureFromSurface(ren, s); 
+        SDL_Rect d = {x, y, s->w, s->h}; 
+        SDL_RenderCopy(ren, tx, NULL, &d); 
+        SDL_DestroyTexture(tx); 
+        SDL_FreeSurface(s); 
+    }
 }
 
 void Game::loop() { while (running) { Uint32 st = SDL_GetTicks(); handleInput(); update(); render(); Uint32 t = SDL_GetTicks() - st; if (t < FRAME_DELAY) SDL_Delay((Uint32)FRAME_DELAY - t); } }

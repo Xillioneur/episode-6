@@ -38,6 +38,8 @@ void Player::update(float dt, const std::vector<std::vector<Tile>>& map) {
     Entity::update(dt, map);
     if (shootCooldown > 0) shootCooldown -= dt;
     energy = std::min(100.0f, energy + 12.0f * dt);
+    prevShield = shield;
+    if (shield < maxShield) shield = std::min(maxShield, shield + 5.0f * dt);
     if (reflexActive) {
         reflexMeter -= 25.0f * dt;
         if (reflexMeter <= 0) { reflexMeter = 0; reflexActive = false; }
@@ -74,11 +76,21 @@ void RogueCore::calculatePath(const Vec2& target, const std::vector<std::vector<
     for(int y=0; y<MAP_HEIGHT; ++y) for(int x=0; x<MAP_WIDTH; ++x) { gS[y][x]=1e6f; vis[y][x]=false; }
     std::priority_queue<std::pair<float, std::pair<int,int>>, std::vector<std::pair<float, std::pair<int,int>>>, std::greater<std::pair<float, std::pair<int,int>>>> pq;
     gS[sy][sx]=0; pq.push({0, {sx, sy}}); bool found=false;
-    while(!pq.empty()){
-        auto cur=pq.top().second; pq.pop(); int cx=cur.first, cy=cur.second; if(cx==ex && cy==ey){found=true; break;}
-        if(vis[cy][cx])continue; vis[cy][cx]=true; int dx[]={0,0,1,-1}, dy[]={1,-1,0,0};
-        for(int i=0; i<4; ++i){ int nx=cx+dx[i], ny=cy+dy[i]; if(nx>=0&&nx<MAP_WIDTH&&ny>=0&&ny<MAP_HEIGHT&&map[ny][nx].type!=WALL&&!vis[ny][nx]){ float tg=gS[cy][cx]+1.0f; if(tg<gS[ny][nx]){par[ny][nx]={cx,cy}; gS[ny][nx]=tg; pq.push({tg+(float)std::abs(nx-ex)+(float)std::abs(ny-ey), {nx,ny}}); } } }
-    }
+        while(!pq.empty()){
+            auto cur=pq.top().second; pq.pop(); int cx=cur.first, cy=cur.second; if(cx==ex && cy==ey){found=true; break;}
+            if(vis[cy][cx]) continue; 
+            vis[cy][cx]=true; 
+            int dx[]={0,0,1,-1}, dy[]={1,-1,0,0};
+            for(int i=0; i<4; ++i){ 
+                int nx=cx+dx[i], ny=cy+dy[i]; 
+                if(nx>=0&&nx<MAP_WIDTH&&ny>=0&&ny<MAP_HEIGHT&&map[ny][nx].type!=WALL&&!vis[ny][nx]){ 
+                    float tg=gS[cy][cx]+1.0f; 
+                    if(tg<gS[ny][nx]){
+                        par[ny][nx]={cx,cy}; gS[ny][nx]=tg; pq.push({tg+(float)std::abs(nx-ex)+(float)std::abs(ny-ey), {nx,ny}}); 
+                    } 
+                } 
+            }
+        }
     path.clear(); if(found){ int cx=ex, cy=ey; while(cx!=sx||cy!=sy){ path.push_back({(float)cx*TILE_SIZE+20, (float)cy*TILE_SIZE+20}); auto p=par[cy][cx]; cx=p.first; cy=p.second; } std::reverse(path.begin(), path.end()); pathIndex=0; }
 }
 

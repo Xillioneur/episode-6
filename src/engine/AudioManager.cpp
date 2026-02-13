@@ -60,6 +60,14 @@ void AudioManager::play(SoundType type, float vol, float freq, float pan) {
             else if (type == SoundType::PIERCE_SHOT) sounds[i].duration = 0.5f;
             else if (type == SoundType::SHIELD_DOWN) sounds[i].duration = 0.6f;
             else if (type == SoundType::LOW_ENERGY) sounds[i].duration = 0.2f;
+            else if (type == SoundType::DRIP) sounds[i].duration = 0.15f;
+            else if (type == SoundType::MACHINERY) sounds[i].duration = 1.0f;
+            else if (type == SoundType::STEAM) sounds[i].duration = 0.5f;
+            else if (type == SoundType::ECHO_VOICE) sounds[i].duration = 0.8f;
+            else if (type == SoundType::ZAP) sounds[i].duration = 0.12f;
+            else if (type == SoundType::SHIELD_CHARGE) sounds[i].duration = 0.4f;
+            else if (type == SoundType::READY) sounds[i].duration = 0.25f;
+            else if (type == SoundType::BOSS_DIE) sounds[i].duration = 1.5f;
             else sounds[i].duration = 0.2f;
             break;
         }
@@ -198,6 +206,34 @@ void AudioManager::fillBuffer(float* buffer, int samples) {
             } else if (s.type == SoundType::LOW_ENERGY) {
                 val = std::sin(s.phase) * (std::sin(2.0f * M_PI * 10.0f * s.elapsed) > 0 ? 1.0f : 0.0f);
                 s.phase += 2.0f * M_PI * 1500.0f * dt;
+            } else if (s.type == SoundType::DRIP) {
+                val = std::sin(s.phase) * std::exp(-t * 20.0f);
+                s.phase += 2.0f * M_PI * freq * dt;
+            } else if (s.type == SoundType::MACHINERY) {
+                val = (std::sin(s.phase) > 0 ? 0.3f : -0.3f) * (0.8f + 0.2f * std::sin(2.0f * M_PI * 2.0f * s.elapsed));
+                s.phase += 2.0f * M_PI * freq * dt;
+            } else if (s.type == SoundType::STEAM) {
+                val = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * (1.0f - t) * (0.5f + 0.5f * std::sin(s.phase));
+                s.phase += 2.0f * M_PI * 15.0f * dt;
+            } else if (s.type == SoundType::ECHO_VOICE) {
+                float v = std::sin(s.phase) * std::sin(s.phase * 0.11f) * std::sin(s.phase * 0.05f);
+                val = v * (1.0f - t);
+                s.phase += 2.0f * M_PI * (freq + 50.0f * std::sin(s.elapsed * 10.0f)) * dt;
+            } else if (s.type == SoundType::ZAP) {
+                val = (std::sin(s.phase) > 0 ? 1.0f : -1.0f) * ((float)rand() / RAND_MAX);
+                s.phase += 2.0f * M_PI * freq * dt;
+            } else if (s.type == SoundType::SHIELD_CHARGE) {
+                val = std::sin(s.phase) * t;
+                s.phase += 2.0f * M_PI * (freq + 400.0f * t) * dt;
+            } else if (s.type == SoundType::READY) {
+                float f_sel = freq * (std::fmod(s.elapsed, 0.1f) < 0.05f ? 1.0f : 1.2f);
+                val = std::sin(s.phase) * env;
+                s.phase += 2.0f * M_PI * f_sel * dt;
+            } else if (s.type == SoundType::BOSS_DIE) {
+                float rumble = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * (1.0f - t);
+                float sweep = std::sin(s.phase) * std::exp(-t * 2.0f);
+                val = rumble * 0.7f + sweep * 0.3f;
+                s.phase += 2.0f * M_PI * (100.0f - 80.0f * t) * dt;
             }
 
             float sVol = val * s.volume;
