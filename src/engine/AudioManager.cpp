@@ -51,6 +51,15 @@ void AudioManager::play(SoundType type, float vol, float freq, float pan) {
             else if (type == SoundType::PICKUP) sounds[i].duration = 0.4f;
             else if (type == SoundType::SANITIZE) sounds[i].duration = 0.8f;
             else if (type == SoundType::ALERT) sounds[i].duration = 0.15f;
+            else if (type == SoundType::RICOCHET) sounds[i].duration = 0.1f;
+            else if (type == SoundType::EMPTY) sounds[i].duration = 0.08f;
+            else if (type == SoundType::BOSS_PHASE) sounds[i].duration = 1.2f;
+            else if (type == SoundType::UI_CLICK) sounds[i].duration = 0.05f;
+            else if (type == SoundType::UI_CONFIRM) sounds[i].duration = 0.3f;
+            else if (type == SoundType::EMP_SHOT) sounds[i].duration = 0.4f;
+            else if (type == SoundType::PIERCE_SHOT) sounds[i].duration = 0.5f;
+            else if (type == SoundType::SHIELD_DOWN) sounds[i].duration = 0.6f;
+            else if (type == SoundType::LOW_ENERGY) sounds[i].duration = 0.2f;
             else sounds[i].duration = 0.2f;
             break;
         }
@@ -60,9 +69,16 @@ void AudioManager::play(SoundType type, float vol, float freq, float pan) {
 void AudioManager::audioCallback(void* userdata, Uint8* stream, int len) {
     AudioManager* am = (AudioManager*)userdata;
     float* buffer = (float*)stream;
-    int samples = len / sizeof(float); // This is total floats (channels * frames)
+    int samples = len / sizeof(float);
     std::fill(buffer, buffer + samples, 0.0f);
     am->fillBuffer(buffer, samples);
+}
+
+void AudioManager::setAmbientState(AmbientState state) {
+    std::lock_guard<std::mutex> lock(audioMutex);
+    if (state == AmbientState::STANDARD) targetAmbientFreq = 55.0f;
+    else if (state == AmbientState::BATTLE) targetAmbientFreq = 82.0f;
+    else if (state == AmbientState::BOSS) targetAmbientFreq = 41.0f;
 }
 
 void AudioManager::fillBuffer(float* buffer, int samples) {
@@ -71,12 +87,28 @@ void AudioManager::fillBuffer(float* buffer, int samples) {
     int frames = samples / 2;
 
     for (int f = 0; f < frames; ++f) {
-        float mono = 0.0f;
+        // Smooth ambient freq transition
+        ambientFreq += (targetAmbientFreq - ambientFreq) * 0.0001f;
         
-        // Ambient
-        float amb = (std::sin(ambientPhase) * 0.4f + std::sin(ambientPhase * 0.49f) * 0.3f + std::sin(ambientPhase * 0.1f) * 0.3f);
+        float mono = 0.0f;
+        // Layered Ambient: 3 Sines + 1 slow modulator
+        float l1 = std::sin(ambientPhase);
+        float l2 = std::sin(ambientPhase * 0.501f) * 0.8f;
+        float l3 = std::sin(ambientPhase * 2.002f) * 0.3f;
+        float mod = 0.5f + 0.5f * std::sin(ambientPhase2);
+        
+        // Add a "wind" whirring layer using modulated noise
+        float noise = ((float)rand() / RAND_MAX * 2.0f - 1.0f);
+        float wind = noise * (0.2f + 0.3f * std::sin(ambientPhase2 * 0.5f));
+        
+        float amb = (l1 + l2 + l3) * mod + wind * 0.2f;
+
         mono += amb * ambientVolume;
-        ambientPhase += 2.0f * M_PI * 55.0f * dt;
+        ambientPhase += 2.0f * M_PI * ambientFreq * dt;
+        ambientPhase2 += 2.0f * M_PI * 0.15f * dt; // Slow 0.15Hz modulation
+        
+        if (ambientPhase > 2.0f * M_PI * 100.0f) ambientPhase -= 2.0f * M_PI * 100.0f;
+        if (ambientPhase2 > 2.0f * M_PI * 100.0f) ambientPhase2 -= 2.0f * M_PI * 100.0f;
 
         float left = 0, right = 0;
 
@@ -91,12 +123,9 @@ void AudioManager::fillBuffer(float* buffer, int samples) {
             float env = std::exp(-t * 5.0f) * (1.0f - t);
 
             if (s.type == SoundType::SHOOT) {
-                // Layer 1: Transient
                 float transient = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * std::exp(-t * 100.0f);
-                // Layer 2: Body
                 float bodyFreq = freq * std::exp(-t * 15.0f);
                 float body = (std::sin(s.phase) > 0 ? 0.8f : -0.8f) * std::exp(-t * 10.0f);
-                // Layer 3: Noise Tail
                 float tail = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * std::exp(-t * 4.0f) * 0.4f;
                 val = (transient * 0.5f + body * 0.6f + tail * 0.3f);
                 s.phase += 2.0f * M_PI * bodyFreq * dt;
@@ -131,6 +160,44 @@ void AudioManager::fillBuffer(float* buffer, int samples) {
             } else if (s.type == SoundType::ALERT) {
                 val = (std::sin(s.phase) > 0 ? 0.5f : -0.5f) * (std::sin(2.0f * M_PI * 15.0f * s.elapsed) > 0 ? 1.0f : 0.0f);
                 s.phase += 2.0f * M_PI * freq * dt;
+            } else if (s.type == SoundType::RICOCHET) {
+                float ping = std::sin(s.phase) * std::exp(-t * 25.0f);
+                float noise = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * std::exp(-t * 40.0f);
+                val = ping * 0.6f + noise * 0.4f;
+                s.phase += 2.0f * M_PI * (freq + 1000.0f * t) * dt;
+            } else if (s.type == SoundType::EMPTY) {
+                val = (std::sin(s.phase) > 0 ? 1.0f : -1.0f) * std::exp(-t * 50.0f);
+                s.phase += 2.0f * M_PI * 150.0f * dt;
+            } else if (s.type == SoundType::BOSS_PHASE) {
+                float sub = std::sin(s.phase) * (1.0f - t);
+                float texture = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * 0.2f * std::sin(s.phase * 0.1f);
+                val = sub + texture;
+                s.phase += 2.0f * M_PI * (60.0f + 100.0f * t) * dt;
+            } else if (s.type == SoundType::UI_CLICK) {
+                val = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * std::exp(-t * 80.0f);
+            } else if (s.type == SoundType::UI_CONFIRM) {
+                float f_sel = freq * (t < 0.5f ? 1.0f : 1.5f);
+                float sub = std::sin(s.phase);
+                float harm1 = std::sin(s.phase * 2.0f) * 0.5f;
+                float harm2 = std::sin(s.phase * 3.0f) * 0.25f;
+                val = (sub + harm1 + harm2) * env;
+                s.phase += 2.0f * M_PI * f_sel * dt;
+            } else if (s.type == SoundType::EMP_SHOT) {
+                float buzz = (std::sin(s.phase) * std::sin(s.phase * 1.05f)) * (1.0f - t);
+                float crackle = ((float)rand() / RAND_MAX * 2.0f - 1.0f) * 0.3f * (1.0f - t);
+                val = buzz + crackle;
+                s.phase += 2.0f * M_PI * (freq + std::sin(t * 50.0f) * 100.0f) * dt;
+            } else if (s.type == SoundType::PIERCE_SHOT) {
+                float whistle = std::sin(s.phase) * std::exp(-t * 2.0f);
+                float heavy = (std::sin(s.phase * 0.5f) > 0 ? 1.0f : -1.0f) * std::exp(-t * 10.0f);
+                val = whistle * 0.4f + heavy * 0.7f;
+                s.phase += 2.0f * M_PI * freq * std::exp(-t * 5.0f) * dt;
+            } else if (s.type == SoundType::SHIELD_DOWN) {
+                val = (std::sin(s.phase) * std::sin(s.phase * 0.5f)) * (1.0f - t);
+                s.phase += 2.0f * M_PI * (freq - 400.0f * t) * dt;
+            } else if (s.type == SoundType::LOW_ENERGY) {
+                val = std::sin(s.phase) * (std::sin(2.0f * M_PI * 10.0f * s.elapsed) > 0 ? 1.0f : 0.0f);
+                s.phase += 2.0f * M_PI * 1500.0f * dt;
             }
 
             float sVol = val * s.volume;

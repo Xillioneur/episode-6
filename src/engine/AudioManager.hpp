@@ -7,7 +7,9 @@
 #include <mutex>
 
 enum class SoundType {
-    SHOOT, STEP, DASH, RELOAD, HIT, PICKUP, POWERUP, SANITIZE, ALERT
+    SHOOT, STEP, DASH, RELOAD, HIT, PICKUP, POWERUP, SANITIZE, ALERT,
+    RICOCHET, EMPTY, BOSS_PHASE, UI_CLICK, UI_CONFIRM, EMP_SHOT, PIERCE_SHOT,
+    SHIELD_DOWN, LOW_ENERGY
 };
 
 struct SoundInstance {
@@ -18,26 +20,30 @@ struct SoundInstance {
     float duration;
     float volume;
     float freq;
-    float pan; // -1.0 (left) to 1.0 (right)
+    float pan;
     bool active = false;
 };
+
+enum class AmbientState { STANDARD, BATTLE, BOSS };
 
 class AudioManager {
 public:
     AudioManager();
     ~AudioManager();
     void play(SoundType type, float vol = 0.2f, float freq = 440.0f, float pan = 0.0f);
-    void updateAmbient(float dt);
+    void setAmbientState(AmbientState state);
     static void audioCallback(void* userdata, Uint8* stream, int len);
 
 private:
     SDL_AudioDeviceID device;
     SoundInstance sounds[32];
     float ambientPhase = 0.0f;
+    float ambientPhase2 = 0.0f;
     float ambientVolume = 0.04f;
+    float ambientFreq = 55.0f;
+    float targetAmbientFreq = 55.0f;
     
-    // Simple Reverb
-    float delayBuffer[8820]; // ~200ms at 44.1k
+    float delayBuffer[8820];
     int delayIdx = 0;
     
     std::mutex audioMutex;

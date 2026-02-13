@@ -35,6 +35,32 @@ void HUD::drawBar(SDL_Renderer* ren, int x, int y, int w, int h, float pct, SDL_
     SDL_RenderDrawRect(ren, &bg);
 }
 
+void HUD::renderSummary(SDL_Renderer* ren, int score, int sector, TTF_Font* font, TTF_Font* fontL) {
+    renderText(ren, "SECTOR " + std::to_string(sector) + " CLEARED", SCREEN_WIDTH / 2 - 200, 100, fontL, {50, 150, 255, 255});
+    renderText(ren, "STATUS: CORE SANITIZATION COMPLETE", SCREEN_WIDTH / 2 - 140, 170, font, {200, 200, 255, 255});
+    
+    SDL_SetRenderDrawColor(ren, 50, 60, 80, 255);
+    SDL_Rect line = {SCREEN_WIDTH / 2 - 200, 210, 400, 2};
+    SDL_RenderFillRect(ren, &line);
+
+    renderText(ren, "FINANCIAL ASSETS RECOVERED: " + std::to_string(score), SCREEN_WIDTH / 2 - 120, 240, font, {255, 255, 255, 255});
+    renderText(ren, "SECTOR PERFORMANCE RATING: S-CLASS", SCREEN_WIDTH / 2 - 140, 270, font, {255, 255, 100, 255});
+    
+    renderText(ren, "MISSION LOG HISTORY:", SCREEN_WIDTH / 2 - 80, 330, font, {150, 150, 150, 255});
+    int sy = 360;
+    for (const auto& l : logs) {
+        renderText(ren, l.msg, SCREEN_WIDTH / 2 - 150, sy, font, {100, 100, 150, 255});
+        sy += 20;
+    }
+    
+    SDL_RenderFillRect(ren, &line); line.y = 500; SDL_RenderFillRect(ren, &line);
+    renderText(ren, "PRESS ENTER TO PROCEED TO NEXT SECTOR", SCREEN_WIDTH / 2 - 160, 530, font, {50, 255, 100, 255});
+    
+    SDL_SetRenderDrawColor(ren, 100, 255, 100, (Uint8)(100 + 100 * std::sin(SDL_GetTicks() * 0.01f)));
+    SDL_Rect flash = {SCREEN_WIDTH / 2 - 170, 520, 340, 40};
+    SDL_RenderDrawRect(ren, &flash);
+}
+
 void HUD::render(SDL_Renderer* ren, Player* p, int score, int sector, Game& game, TTF_Font* font, TTF_Font* fontL) {
     (void)fontL;
     drawBar(ren, 20, 20, 200, 18, p->suitIntegrity/100.0f, {50, 255, 100, 255});

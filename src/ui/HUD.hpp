@@ -17,6 +17,7 @@ public:
     void addLog(const std::string& m, SDL_Color c = {200, 200, 255, 255});
     void update(float dt);
     void render(SDL_Renderer* ren, Player* p, int score, int sector, Game& game, TTF_Font* font, TTF_Font* fontL);
+    void renderSummary(SDL_Renderer* ren, int score, int sector, TTF_Font* font, TTF_Font* fontL);
     void renderText(SDL_Renderer* ren, const std::string& t, int x, int y, TTF_Font* f, SDL_Color c);
 
 private:

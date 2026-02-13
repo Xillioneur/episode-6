@@ -53,7 +53,12 @@ public:
     float shake = 0.0f;
     int score = 0;
     int sector = 1;
+    float multiplier = 1.0f;
+    float multiplierTimer = 0.0f;
     float alertTimer = 0.0f;
+    float energyAlertTimer = 0.0f;
+    float titleTimer = 0.0f;
+    float pulseTimer = 0.0f;
     bool debugMode = false;
     AmmoType currentAmmo = AmmoType::STANDARD;
 
