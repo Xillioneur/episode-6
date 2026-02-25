@@ -594,4 +594,13 @@ void Game::renderT(std::string t, int x, int y, TTF_Font* f, SDL_Color c) {
     }
 }
 
-void Game::loop() { while (running) { Uint32 st = SDL_GetTicks(); handleInput(); update(); render(); Uint32 t = SDL_GetTicks() - st; if (t < FRAME_DELAY) SDL_Delay((Uint32)FRAME_DELAY - t); } }
+void Game::loop() { 
+    while (running) { 
+        Uint32 st = SDL_GetTicks(); 
+        handleInput(); 
+        update(); 
+        render(); 
+        Uint32 t = SDL_GetTicks() - st; 
+        if (t < FRAME_DELAY) SDL_Delay((Uint32)FRAME_DELAY - t); 
+    } 
+}
